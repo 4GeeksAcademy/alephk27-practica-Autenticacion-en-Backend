@@ -30,7 +30,13 @@ def authenticate_user(email: str, password: str) -> Document | None:
 
 
 def _to_user(document: Document) -> UserResponse:
-    return UserResponse(id=document.doc_id, **document)
+    # Build the public schema from an explicit allowlist so internal values
+    # (including password_hash) can never leak through a response.
+    return UserResponse(
+        id=document.doc_id,
+        username=document["username"],
+        email=document["email"],
+    )
 
 
 def get_user_role(document: Document) -> str:
@@ -60,19 +66,30 @@ def create_user(user_data: UserCreate) -> tuple[UserResponse, ProfileResponse]:
             "role": "user",
         }
     )
-    profile_id = profiles_table.insert(
-        {
-            "user_id": user_id,
-            "full_name": user_data.username,
-            "bio": None,
-            "phone": None,
-            "address": None,
-        }
-    )
+    profile_id: int | None = None
+    try:
+        profile_id = profiles_table.insert(
+            {
+                "user_id": user_id,
+                "full_name": user_data.username,
+                "bio": None,
+                "phone": None,
+                "address": None,
+            }
+        )
 
-    saved_user = users_table.get(doc_id=user_id)
-    if saved_user is None:
-        raise RuntimeError("Could not retrieve the newly created user")
+        saved_user = users_table.get(doc_id=user_id)
+        if saved_user is None:
+            raise RuntimeError("Could not retrieve the newly created user")
+        if profile_id is None:
+            raise RuntimeError("Could not retrieve the newly created profile")
+    except Exception:
+        # Avoid leaving a user without its linked profile if either operation
+        # fails after the user record has been written.
+        if profile_id is not None:
+            profiles_table.remove(doc_ids=[profile_id])
+        users_table.remove(doc_ids=[user_id])
+        raise
 
     return (
         _to_user(saved_user),
@@ -80,9 +97,6 @@ def create_user(user_data: UserCreate) -> tuple[UserResponse, ProfileResponse]:
             id=profile_id,
             user_id=user_id,
             full_name=user_data.username,
-            bio=None,
-            phone=None,
-            address=None,
         ),
     )
 

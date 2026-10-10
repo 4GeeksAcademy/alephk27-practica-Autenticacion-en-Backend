@@ -13,7 +13,7 @@ from app.controllers.user_controller import get_user_role
 from app.database import users_table
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
 def create_access_token(
